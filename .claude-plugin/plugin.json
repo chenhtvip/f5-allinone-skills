@@ -1,0 +1,10 @@
+{
+  "name": "f5-allinone-skills",
+  "description": "F5 BIG-IP 一站式管理技能：状态监控、配置查询、SSL证书管理、配置下发",
+  "version": "1.0.0",
+  "author": {
+    "name": "F5 Admin",
+    "email": "admin@example.com"
+  },
+  "keywords": ["f5", "bigip", "load-balancer", "network", "ssl", "monitoring"]
+}
