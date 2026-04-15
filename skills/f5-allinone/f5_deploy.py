@@ -44,7 +44,7 @@ class F5Deploy:
             "name": name,
             "partition": partition,
             "loadBalancingMode": lb_mode,
-            "monitor": f"/Common/{monitor}",
+            "monitor": f"/{partition}/{monitor}",
             "members": formatted_members
         }
         return self.client.post("/ltm/pool", payload)
