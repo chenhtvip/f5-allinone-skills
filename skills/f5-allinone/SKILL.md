@@ -1,6 +1,6 @@
 ---
 name: f5-allinone
-description: Use when working with F5 BIG-IP load balancers via API - monitoring device status (CPU/memory/HA/connections), querying configuration (virtual servers/pools/profiles/SNAT), managing SSL certificates with expiry alerts, or deploying configuration changes programmatically via iControl REST API
+description: Use when working with F5 BIG-IP load balancers via API - monitoring device status (CPU/memory/HA/connections), querying configuration (virtual servers/pools/profiles/SNAT), managing SSL certificates with expiry alerts, checking which virtual servers have expiring or expired SSL certificates linked via SSL profiles, or deploying configuration changes programmatically via iControl REST API
 ---
 
 # F5 All-in-One Management Skill
@@ -77,6 +77,19 @@ report = ssl.get_summary_report(days_warning=30, days_critical=7)
 print(f"状态: {report['status']}")
 print(f"已过期: {len(report['expired'])} 个")
 print(f"即将过期(7天内): {len(report['critical'])} 个")
+
+```python
+# VS 关联证书到期巡检（两级告警：CRITICAL=7天，WARNING=30天）
+config = F5Config(client)
+report = ssl.get_vs_ssl_cert_report(config, days_warning=30, days_critical=7)
+print(f"整体状态: {report['status']}")
+for r in report['expired']:
+    print(f"[EXPIRED]  VS={r['vs_name']}  证书={r['cert_name']}")
+for r in report['critical']:
+    print(f"[CRITICAL] VS={r['vs_name']}  证书={r['cert_name']}  剩余={r['days_until_expiry']}天")
+for r in report['warning']:
+    print(f"[WARNING]  VS={r['vs_name']}  证书={r['cert_name']}  剩余={r['days_until_expiry']}天")
+```
 ```
 
 ## 配置下发 (F5Deploy)
@@ -111,6 +124,54 @@ changes = [
 ]
 result = deploy.deploy_with_transaction(changes)
 ```
+
+## 批量巡检 (F5Audit)
+
+适用于日常对多台 F5 设备统一巡检，结果导出为 CSV 报告。
+
+### 1. 编辑设备清单 `inventory.yaml`
+
+```yaml
+devices:
+  - name: f5-prod-01
+    host: 10.1.1.14
+    port: 443
+    username: admin
+    password: your_password
+  - name: f5-prod-02
+    host: 10.1.1.15
+    port: 443
+    username: admin
+    password: your_password
+```
+
+### 2. 执行巡检并导出报告
+
+```python
+from f5_audit import F5Audit
+
+audit = F5Audit("inventory.yaml")
+results = audit.run_all()
+audit.export_csv(results, "audit_report.csv")
+```
+
+生成的 `audit_report.csv` 包含以下字段：
+
+| 列 | 说明 |
+|----|------|
+| 巡检时间 | 巡检执行时刻 |
+| 设备名 / 主机 | 清单中的 name 和 host |
+| 状态 | `ok` 或 `error` |
+| HA状态 | ACTIVE / STANDBY |
+| CPU使用率% / 内存使用率% | 实时资源占用 |
+| 并发连接 / 吞吐Mbps | 流量指标 |
+| SSL状态 | OK / WARNING / CRITICAL |
+| SSL过期/告警证书数 | 证书健康情况 |
+| 错误信息 | 连接失败时的异常原因 |
+
+> 单台设备连接失败不影响其他设备的巡检，错误信息记录在对应行。
+
+---
 
 ## F5 设备连接要求
 
