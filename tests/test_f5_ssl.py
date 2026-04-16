@@ -239,3 +239,49 @@ class TestF5SSL:
         assert report["unknown"][0]["alert_level"] == "UNKNOWN"
         assert len(report["expired"]) == 0
         assert len(report["ok"]) == 0
+
+    def test_get_vs_ssl_cert_report_cert_key_chain(self):
+        """certKeyChain 方式绑定的过期证书应被正确识别"""
+        past_ts = int((datetime.now(timezone.utc) - timedelta(days=10)).timestamp())
+
+        mock_config = MagicMock()
+        mock_config.list_virtual_servers.return_value = [
+            {
+                "name": "https_vs",
+                "destination": "/Common/10.0.0.1:443",
+                "profilesReference": {
+                    "items": [{"name": "sm2-profile", "fullPath": "/Common/sm2-profile"}]
+                },
+            }
+        ]
+        # profile 使用 certKeyChain，平铺 cert 字段为 "none"
+        mock_config.list_profiles.return_value = [
+            {
+                "name": "sm2-profile",
+                "cert": "none",
+                "key": "none",
+                "certKeyChain": [
+                    {"name": "entry_0", "cert": "/Common/sm2_expired.crt", "key": "/Common/sm2_expired"}
+                ],
+            }
+        ]
+        self.mock_client.get.return_value = {
+            "items": [
+                {
+                    "name": "sm2_expired.crt",
+                    "partition": "Common",
+                    "expirationDate": past_ts,
+                    "subject": "CN=sm2.example.com",
+                    "issuer": "CN=SM2 CA",
+                }
+            ]
+        }
+
+        report = self.ssl.get_vs_ssl_cert_report(mock_config)
+
+        assert report["status"] == "CRITICAL"
+        assert len(report["expired"]) == 1
+        assert report["expired"][0]["vs_name"] == "https_vs"
+        assert report["expired"][0]["cert_name"] == "sm2_expired.crt"
+        assert report["expired"][0]["alert_level"] == "EXPIRED"
+        assert len(report["unknown"]) == 0

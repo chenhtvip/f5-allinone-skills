@@ -81,22 +81,35 @@ class F5SSL:
         # 1. VS 列表（含 profilesReference）
         vs_list = config.list_virtual_servers()
 
-        # 2. client-ssl profile → cert 路径映射（同时记录所有 client-ssl profile 名）
-        profile_cert: Dict[str, str] = {}
+        # 2. client-ssl profile → cert 名列表映射（支持 certKeyChain 和平铺 cert 两种方式）
+        profile_certs: Dict[str, List[str]] = {}
         client_ssl_names: set = set()
         for p in config.list_profiles("client-ssl"):
             pname = p["name"]
             client_ssl_names.add(pname)
-            cert_path = p.get("cert", "none")
-            if cert_path and cert_path != "none":
-                profile_cert[pname] = cert_path.split("/")[-1]
+            certs_for_profile: List[str] = []
+
+            # 优先读取 certKeyChain（SM2 双证书、SNI 多证书场景）
+            for ckc in p.get("certKeyChain", []):
+                ckc_cert = ckc.get("cert", "none")
+                if ckc_cert and ckc_cert != "none":
+                    certs_for_profile.append(ckc_cert.split("/")[-1])
+
+            # 回退到平铺 cert 字段
+            if not certs_for_profile:
+                cert_path = p.get("cert", "none")
+                if cert_path and cert_path != "none":
+                    certs_for_profile.append(cert_path.split("/")[-1])
+
+            if certs_for_profile:
+                profile_certs[pname] = certs_for_profile
 
         # 3. 证书名 → 到期信息映射
         cert_info: Dict[str, Dict[str, Any]] = {
             c["name"]: c for c in self.list_certificates()
         }
 
-        # 4. 三表 join，打告警级别
+        # 4. 三表 join，打告警级别（每个 profile 下的每张证书产生一条记录）
         records: List[Dict[str, Any]] = []
         for vs in vs_list:
             profiles_raw = vs.get("profilesReference", {}).get("items", [])
@@ -106,39 +119,54 @@ class F5SSL:
             ]
             for profile in ssl_profiles:
                 pname = profile.get("name", "")
-                cert_name = profile_cert.get(pname)  # None when profile has no cert configured
-                info = cert_info.get(cert_name) if cert_name is not None else None
+                cert_names = profile_certs.get(pname, [])
 
-                if info is None:
-                    alert = "UNKNOWN"
-                    expiry_date = ""
-                    days = None
-                elif info["is_expired"]:
-                    alert = "EXPIRED"
-                    expiry_date = info["expiration_date"]
-                    days = info["days_until_expiry"]
-                elif info["days_until_expiry"] <= days_critical:
-                    alert = "CRITICAL"
-                    expiry_date = info["expiration_date"]
-                    days = info["days_until_expiry"]
-                elif info["days_until_expiry"] <= days_warning:
-                    alert = "WARNING"
-                    expiry_date = info["expiration_date"]
-                    days = info["days_until_expiry"]
-                else:
-                    alert = "OK"
-                    expiry_date = info["expiration_date"]
-                    days = info["days_until_expiry"]
+                if not cert_names:
+                    # profile 未配置任何证书
+                    records.append({
+                        "vs_name": vs.get("name", ""),
+                        "destination": vs.get("destination", ""),
+                        "ssl_profile": pname,
+                        "cert_name": None,
+                        "expiration_date": "",
+                        "days_until_expiry": None,
+                        "alert_level": "UNKNOWN",
+                    })
+                    continue
 
-                records.append({
-                    "vs_name": vs.get("name", ""),
-                    "destination": vs.get("destination", ""),
-                    "ssl_profile": pname,
-                    "cert_name": cert_name,
-                    "expiration_date": expiry_date,
-                    "days_until_expiry": days,
-                    "alert_level": alert,
-                })
+                for cert_name in cert_names:
+                    info = cert_info.get(cert_name)
+
+                    if info is None:
+                        alert = "UNKNOWN"
+                        expiry_date = ""
+                        days = None
+                    elif info["is_expired"]:
+                        alert = "EXPIRED"
+                        expiry_date = info["expiration_date"]
+                        days = info["days_until_expiry"]
+                    elif info["days_until_expiry"] <= days_critical:
+                        alert = "CRITICAL"
+                        expiry_date = info["expiration_date"]
+                        days = info["days_until_expiry"]
+                    elif info["days_until_expiry"] <= days_warning:
+                        alert = "WARNING"
+                        expiry_date = info["expiration_date"]
+                        days = info["days_until_expiry"]
+                    else:
+                        alert = "OK"
+                        expiry_date = info["expiration_date"]
+                        days = info["days_until_expiry"]
+
+                    records.append({
+                        "vs_name": vs.get("name", ""),
+                        "destination": vs.get("destination", ""),
+                        "ssl_profile": pname,
+                        "cert_name": cert_name,
+                        "expiration_date": expiry_date,
+                        "days_until_expiry": days,
+                        "alert_level": alert,
+                    })
 
         expired  = [r for r in records if r["alert_level"] == "EXPIRED"]
         critical = [r for r in records if r["alert_level"] == "CRITICAL"]
