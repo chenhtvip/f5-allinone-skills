@@ -77,6 +77,7 @@ report = ssl.get_summary_report(days_warning=30, days_critical=7)
 print(f"状态: {report['status']}")
 print(f"已过期: {len(report['expired'])} 个")
 print(f"即将过期(7天内): {len(report['critical'])} 个")
+```
 
 ```python
 # VS 关联证书到期巡检（两级告警：CRITICAL=7天，WARNING=30天）
@@ -89,7 +90,6 @@ for r in report['critical']:
     print(f"[CRITICAL] VS={r['vs_name']}  证书={r['cert_name']}  剩余={r['days_until_expiry']}天")
 for r in report['warning']:
     print(f"[WARNING]  VS={r['vs_name']}  证书={r['cert_name']}  剩余={r['days_until_expiry']}天")
-```
 ```
 
 ## 配置下发 (F5Deploy)
