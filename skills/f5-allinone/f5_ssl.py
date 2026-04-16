@@ -103,8 +103,8 @@ class F5SSL:
             ]
             for profile in ssl_profiles:
                 pname = profile.get("name", "")
-                cert_name = profile_cert.get(pname, "none")
-                info = cert_info.get(cert_name)
+                cert_name = profile_cert.get(pname)  # None when profile has no cert configured
+                info = cert_info.get(cert_name) if cert_name is not None else None
 
                 if info is None:
                     alert = "UNKNOWN"
@@ -141,10 +141,11 @@ class F5SSL:
         critical = [r for r in records if r["alert_level"] == "CRITICAL"]
         warning  = [r for r in records if r["alert_level"] == "WARNING"]
         ok       = [r for r in records if r["alert_level"] == "OK"]
+        unknown  = [r for r in records if r["alert_level"] == "UNKNOWN"]
 
         if expired or critical:
             status = "CRITICAL"
-        elif warning:
+        elif warning or unknown:
             status = "WARNING"
         else:
             status = "OK"
@@ -155,4 +156,5 @@ class F5SSL:
             "critical": critical,
             "warning": warning,
             "ok": ok,
+            "unknown": unknown,
         }

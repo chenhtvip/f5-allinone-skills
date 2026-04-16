@@ -175,3 +175,67 @@ class TestF5SSL:
         assert len(report["expired"]) == 0
         assert len(report["critical"]) == 0
         assert len(report["warning"]) == 0
+
+    def test_get_vs_ssl_cert_report_warning(self):
+        """VS 绑定 20 天后到期的证书 → warning 非空，status=WARNING"""
+        warning_ts = int((datetime.now(timezone.utc) + timedelta(days=20)).timestamp())
+
+        mock_config = MagicMock()
+        mock_config.list_virtual_servers.return_value = [
+            {
+                "name": "warn_vs",
+                "destination": "/Common/10.0.0.3:443",
+                "profilesReference": {
+                    "items": [{"name": "warn-ssl", "fullPath": "/Common/warn-ssl"}]
+                },
+            }
+        ]
+        mock_config.list_profiles.return_value = [
+            {"name": "warn-ssl", "cert": "/Common/warn.crt", "key": "/Common/warn.key"}
+        ]
+        self.mock_client.get.return_value = {
+            "items": [
+                {
+                    "name": "warn.crt",
+                    "partition": "Common",
+                    "expirationDate": warning_ts,
+                    "subject": "CN=warn",
+                    "issuer": "CN=CA",
+                }
+            ]
+        }
+
+        report = self.ssl.get_vs_ssl_cert_report(mock_config, days_warning=30, days_critical=7)
+
+        assert report["status"] == "WARNING"
+        assert len(report["warning"]) == 1
+        assert report["warning"][0]["alert_level"] == "WARNING"
+        assert len(report["expired"]) == 0
+        assert len(report["critical"]) == 0
+        assert len(report["ok"]) == 0
+
+    def test_get_vs_ssl_cert_report_unknown_cert(self):
+        """VS 绑定的 SSL profile 没有配置证书 → unknown 非空，status=WARNING"""
+        mock_config = MagicMock()
+        mock_config.list_virtual_servers.return_value = [
+            {
+                "name": "no_cert_vs",
+                "destination": "/Common/10.0.0.4:443",
+                "profilesReference": {
+                    "items": [{"name": "nocert-ssl", "fullPath": "/Common/nocert-ssl"}]
+                },
+            }
+        ]
+        # profile 没有 cert 字段（或 cert 为 none）
+        mock_config.list_profiles.return_value = [
+            {"name": "nocert-ssl", "cert": "none", "key": "none"}
+        ]
+        self.mock_client.get.return_value = {"items": []}
+
+        report = self.ssl.get_vs_ssl_cert_report(mock_config)
+
+        assert report["status"] == "WARNING"
+        assert len(report["unknown"]) == 1
+        assert report["unknown"][0]["alert_level"] == "UNKNOWN"
+        assert len(report["expired"]) == 0
+        assert len(report["ok"]) == 0
