@@ -60,7 +60,7 @@ class F5SSL:
 
     def get_vs_ssl_cert_report(
         self,
-        config: Any,
+        config: "F5Config",
         days_warning: int = 30,
         days_critical: int = 7,
     ) -> Dict[str, Any]:
@@ -73,6 +73,7 @@ class F5SSL:
           "critical": [...],   # days_until_expiry <= days_critical
           "warning":  [...],   # days_until_expiry <= days_warning
           "ok":       [...],   # days_until_expiry > days_warning
+          "unknown":  [...],   # cert 未配置或找不到对应证书信息
         }
         每条记录包含：vs_name, destination, ssl_profile, cert_name,
                       expiration_date, days_until_expiry, alert_level
@@ -80,12 +81,15 @@ class F5SSL:
         # 1. VS 列表（含 profilesReference）
         vs_list = config.list_virtual_servers()
 
-        # 2. client-ssl profile → cert 路径映射
+        # 2. client-ssl profile → cert 路径映射（同时记录所有 client-ssl profile 名）
         profile_cert: Dict[str, str] = {}
+        client_ssl_names: set = set()
         for p in config.list_profiles("client-ssl"):
+            pname = p["name"]
+            client_ssl_names.add(pname)
             cert_path = p.get("cert", "none")
             if cert_path and cert_path != "none":
-                profile_cert[p["name"]] = cert_path.split("/")[-1]
+                profile_cert[pname] = cert_path.split("/")[-1]
 
         # 3. 证书名 → 到期信息映射
         cert_info: Dict[str, Dict[str, Any]] = {
@@ -98,8 +102,7 @@ class F5SSL:
             profiles_raw = vs.get("profilesReference", {}).get("items", [])
             ssl_profiles = [
                 p for p in profiles_raw
-                if "ssl" in p.get("fullPath", "").lower()
-                or "ssl" in p.get("name", "").lower()
+                if p.get("name", "") in client_ssl_names
             ]
             for profile in ssl_profiles:
                 pname = profile.get("name", "")

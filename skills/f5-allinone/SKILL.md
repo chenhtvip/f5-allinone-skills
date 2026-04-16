@@ -90,6 +90,8 @@ for r in report['critical']:
     print(f"[CRITICAL] VS={r['vs_name']}  证书={r['cert_name']}  剩余={r['days_until_expiry']}天")
 for r in report['warning']:
     print(f"[WARNING]  VS={r['vs_name']}  证书={r['cert_name']}  剩余={r['days_until_expiry']}天")
+for r in report['unknown']:
+    print(f"[UNKNOWN]  VS={r['vs_name']}  SSL Profile={r['ssl_profile']}（证书未配置）")
 ```
 
 ## 配置下发 (F5Deploy)
