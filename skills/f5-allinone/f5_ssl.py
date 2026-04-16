@@ -57,3 +57,102 @@ class F5SSL:
             "ok": ok,
             "status": "CRITICAL" if expired or critical else "WARNING" if warning else "OK"
         }
+
+    def get_vs_ssl_cert_report(
+        self,
+        config: Any,
+        days_warning: int = 30,
+        days_critical: int = 7,
+    ) -> Dict[str, Any]:
+        """查询所有关联 SSL Profile 的 VS，检查其证书到期状态。
+
+        返回结构：
+        {
+          "status": "CRITICAL" | "WARNING" | "OK",
+          "expired":  [...],   # is_expired=True
+          "critical": [...],   # days_until_expiry <= days_critical
+          "warning":  [...],   # days_until_expiry <= days_warning
+          "ok":       [...],   # days_until_expiry > days_warning
+        }
+        每条记录包含：vs_name, destination, ssl_profile, cert_name,
+                      expiration_date, days_until_expiry, alert_level
+        """
+        # 1. VS 列表（含 profilesReference）
+        vs_list = config.list_virtual_servers()
+
+        # 2. client-ssl profile → cert 路径映射
+        profile_cert: Dict[str, str] = {}
+        for p in config.list_profiles("client-ssl"):
+            cert_path = p.get("cert", "none")
+            if cert_path and cert_path != "none":
+                profile_cert[p["name"]] = cert_path.split("/")[-1]
+
+        # 3. 证书名 → 到期信息映射
+        cert_info: Dict[str, Dict[str, Any]] = {
+            c["name"]: c for c in self.list_certificates()
+        }
+
+        # 4. 三表 join，打告警级别
+        records: List[Dict[str, Any]] = []
+        for vs in vs_list:
+            profiles_raw = vs.get("profilesReference", {}).get("items", [])
+            ssl_profiles = [
+                p for p in profiles_raw
+                if "ssl" in p.get("fullPath", "").lower()
+                or "ssl" in p.get("name", "").lower()
+            ]
+            for profile in ssl_profiles:
+                pname = profile.get("name", "")
+                cert_name = profile_cert.get(pname, "none")
+                info = cert_info.get(cert_name)
+
+                if info is None:
+                    alert = "UNKNOWN"
+                    expiry_date = ""
+                    days = None
+                elif info["is_expired"]:
+                    alert = "EXPIRED"
+                    expiry_date = info["expiration_date"]
+                    days = info["days_until_expiry"]
+                elif info["days_until_expiry"] <= days_critical:
+                    alert = "CRITICAL"
+                    expiry_date = info["expiration_date"]
+                    days = info["days_until_expiry"]
+                elif info["days_until_expiry"] <= days_warning:
+                    alert = "WARNING"
+                    expiry_date = info["expiration_date"]
+                    days = info["days_until_expiry"]
+                else:
+                    alert = "OK"
+                    expiry_date = info["expiration_date"]
+                    days = info["days_until_expiry"]
+
+                records.append({
+                    "vs_name": vs.get("name", ""),
+                    "destination": vs.get("destination", ""),
+                    "ssl_profile": pname,
+                    "cert_name": cert_name,
+                    "expiration_date": expiry_date,
+                    "days_until_expiry": days,
+                    "alert_level": alert,
+                })
+
+        expired  = [r for r in records if r["alert_level"] == "EXPIRED"]
+        critical = [r for r in records if r["alert_level"] == "CRITICAL"]
+        warning  = [r for r in records if r["alert_level"] == "WARNING"]
+        ok       = [r for r in records if r["alert_level"] == "OK"]
+
+        if expired or critical:
+            status = "CRITICAL"
+        elif warning:
+            status = "WARNING"
+        else:
+            status = "OK"
+
+        return {
+            "status": status,
+            "expired": expired,
+            "critical": critical,
+            "warning": warning,
+            "ok": ok,
+        }
