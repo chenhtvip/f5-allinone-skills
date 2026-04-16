@@ -10,7 +10,7 @@ description: Use when working with F5 BIG-IP load balancers via API - monitoring
 通过 F5 iControl REST API 实现完整的 F5 BIG-IP 设备管理，支持：
 - **状态监控**：CPU/内存/连接/吞吐/HA状态/接口流量
 - **配置查询**：Virtual Server/Pool/Profile/SNAT
-- **SSL证书管理**：到期查询与有效期提醒
+- **SSL证书管理**：到期查询、有效期提醒、VS 关联证书到期巡检（支持 certKeyChain/SM2/SNI）
 - **配置下发**：原子事务式配置变更
 
 ## 快速开始
@@ -81,6 +81,7 @@ print(f"即将过期(7天内): {len(report['critical'])} 个")
 
 ```python
 # VS 关联证书到期巡检（两级告警：CRITICAL=7天，WARNING=30天）
+# 同时支持 certKeyChain 方式挂载的证书（SM2 双证书、SNI 多证书场景）
 config = F5Config(client)
 report = ssl.get_vs_ssl_cert_report(config, days_warning=30, days_critical=7)
 print(f"整体状态: {report['status']}")
