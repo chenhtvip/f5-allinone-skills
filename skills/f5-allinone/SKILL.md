@@ -1,6 +1,6 @@
 ---
 name: f5-allinone
-description: Use when working with F5 BIG-IP load balancers via API - monitoring device status (CPU/memory/HA/connections), querying configuration (virtual servers/pools/profiles/SNAT), managing SSL certificates with expiry alerts, checking which virtual servers have expiring or expired SSL certificates linked via SSL profiles, or deploying configuration changes programmatically via iControl REST API
+description: Use when working with F5 BIG-IP load balancers via API - monitoring device status (CPU/memory/HA/connections), querying configuration (virtual servers/pools/profiles/SNAT), managing SSL certificates with expiry alerts, checking which virtual servers have expiring or expired SSL certificates linked via SSL profiles, deploying configuration changes programmatically via iControl REST API, or parsing offline bigip.conf configuration files to extract VS/Pool/Members mappings and export CSV reports
 ---
 
 # F5 All-in-One Management Skill
@@ -12,6 +12,7 @@ description: Use when working with F5 BIG-IP load balancers via API - monitoring
 - **配置查询**：Virtual Server/Pool/Profile/SNAT
 - **SSL证书管理**：到期查询、有效期提醒、VS 关联证书到期巡检（支持 certKeyChain/SM2/SNI）
 - **配置下发**：原子事务式配置变更
+- **离线配置解析**：解析 bigip.conf 文件，提取 VS/Pool/Members 映射关系，导出 CSV
 
 ## 快速开始
 
@@ -94,6 +95,40 @@ for r in report['warning']:
 for r in report['unknown']:
     print(f"[UNKNOWN]  VS={r['vs_name']}  SSL Profile={r['ssl_profile']}（证书未配置）")
 ```
+
+## 离线配置解析 (F5ConfigParser)
+
+解析 F5 BIG-IP 配置文件（bigip.conf），提取 VS/Pool/Members 映射关系。**无需 F5 设备连接**，纯离线文本解析。
+
+| 方法 | 功能 |
+|------|------|
+| `parse()` | 解析配置文件，返回 nodes/pools/virtuals 完整结果 |
+| `export_csv(output_path)` | 解析并导出 CSV 报告 |
+| `get_vs_pool_mapping()` | 返回 VS-Pool 映射的扁平字典列表 |
+| `parse_nodes(config)` | 解析 ltm node 配置块 |
+| `parse_pools(config)` | 解析 ltm pool 配置块 |
+| `parse_virtuals(config, pools, nodes)` | 解析 ltm virtual 配置块 |
+
+```python
+from f5_config_parser import F5ConfigParser
+
+# 解析配置文件
+parser = F5ConfigParser("bigip.conf")
+result = parser.parse()
+print(f"VS 数量: {len(result['virtuals'])}")
+print(f"Pool 数量: {len(result['pools'])}")
+
+# 导出 CSV 报告
+parser.export_csv("vs_pool_mapping.csv")
+
+# 编程消费
+for vs in parser.get_vs_pool_mapping():
+    print(f"{vs['Virtual Name']} -> {vs['Pool Name']}")
+```
+
+CSV 输出列：Virtual Name / Destination IP / Destination Port / Profiles / Rules / Source Address Translation / Pool Name / Member N Address / Member N Port（动态列）
+
+> 支持大文件分块处理（`chunk_size` 参数可调）、FQDN 节点、多分区（非 /Common/）配置。
 
 ## 配置下发 (F5Deploy)
 

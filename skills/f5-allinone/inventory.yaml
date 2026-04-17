@@ -1,0 +1,11 @@
+devices:
+  - name: f5-prod-01
+    host: 10.1.1.14
+    port: 443
+    username: admin
+    password: abies2012
+  # - name: f5-prod-02
+  #   host: 10.1.1.15
+  #   port: 443
+  #   username: admin
+  #   password: password2
